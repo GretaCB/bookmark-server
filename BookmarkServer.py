@@ -22,6 +22,7 @@ import http.server
 import requests
 import os
 import threading
+from urllib.parse import unquote, parse_qs
 from socketserver import ThreadingMixIn
 
 class ThreadHTTPServer(ThreadingMixIn, http.server.HTTPServer):
