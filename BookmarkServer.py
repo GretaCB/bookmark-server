@@ -22,8 +22,10 @@ import http.server
 import requests
 import os
 import threading
+from http import cookies
 from urllib.parse import unquote, parse_qs
 from socketserver import ThreadingMixIn
+from html import escape as html_escape
 
 class ThreadHTTPServer(ThreadingMixIn, http.server.HTTPServer):
     "This is an HTTPServer that supports thread-based concurrency."
@@ -47,6 +49,10 @@ form = '''<!DOCTYPE html>
 <pre>
 {}
 </pre>
+<p>Cookie set:
+<pre>
+{}
+</pre>
 '''
 
 
@@ -65,6 +71,12 @@ def CheckURI(uri, timeout=5):
         # If the GET request raised an exception, it's not OK.
         return False
 
+def setCookie(s):
+    c = cookies.SimpleCookie()
+    c['yoyo'] = 'gotchya'
+    c['yoyo']['domain'] = 'carols-bookmark-server.herokuapp.com'
+    c['yoyo']['max-age'] = 60
+    return c
 
 class Shortener(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
@@ -85,14 +97,28 @@ class Shortener(http.server.BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write("I don't know '{}'.".format(name).encode())
         else:
+            cookieValue = 'None' # Default
+            
+            # Look for a cookie in the request.
+            if 'cookie' in self.headers:
+                try:
+                    # Extract and decode the cookie.
+                    c = cookies.SimpleCookie(self.headers['Cookie'])
+
+                    # Get the cookie value and escaping any HTML special chars.
+                    cookieValue = html_escape(c['yoyo'].value)
+                except (KeyError, cookies.CookieError) as e: 
+                    pass
+            
             # Root path. Send the form.
             self.send_response(200)
             self.send_header('Content-type', 'text/html')
             self.end_headers()
+
             # List the known associations in the form.
             known = "\n".join("{} : {}".format(key, memory[key])
                               for key in sorted(memory.keys()))
-            self.wfile.write(form.format(known).encode())
+            self.wfile.write(form.format(known, cookieValue).encode())
 
     def do_POST(self):
         # Decode the form data.
@@ -115,19 +141,27 @@ class Shortener(http.server.BaseHTTPRequestHandler):
             # This URI is good!  Remember it under the specified name.
             memory[shortname] = longuri
 
+            # Create cookie for funzies
+            c = setCookie(self)
+
             # Serve a redirect to the root page (the form).
             self.send_response(303)
             self.send_header('Location', '/')
+            self.send_header('Set-Cookie', c['yoyo'].OutputString())
             self.end_headers()
 
         else:
             # Didn't successfully fetch the long URI.
-
+            
+            # Create cookie for funzies
+            c = setCookie(self)
+            
             # Send a 404 error with a useful message.
             self.send_response(404)
             self.send_header('Content-type', 'text/plain; charset=utf-8')
             self.end_headers()
             self.wfile.write("We could not access '{}'.".format(longuri).encode())
+
 
 
 if __name__ == '__main__':
